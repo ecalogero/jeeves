@@ -1,0 +1,8 @@
+{
+  "name": "The Real Jeeves",
+  "description": "Valet, Butler, Concierge, PA, Stylist, Social Secretary"
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
