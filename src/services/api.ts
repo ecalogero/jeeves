@@ -77,11 +77,11 @@ export async function logOutfit(entry: OutfitLogEntry): Promise<void> {
 export async function getShopperCache(
   gapsHash: string
 ): Promise<{ cached: boolean; recommendations?: any[] }> {
-  return apiFetch(`/api/shopper/cache?gapsHash=${gapsHash}`);
+  return apiFetch(`/api/shopper-cache/cache?gapsHash=${gapsHash}`);
 }
 
 export async function saveShopperCache(gapsHash: string, recommendations: any[]): Promise<void> {
-  return apiFetch('/api/shopper/cache', {
+  return apiFetch('/api/shopper-cache/cache', {
     method: 'POST',
     body: JSON.stringify({ gapsHash, recommendations }),
   });

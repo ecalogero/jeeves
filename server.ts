@@ -27,17 +27,13 @@ if (process.env.DATABASE_URL) {
   app.use('/api/wardrobe', verifyFirebaseToken, wardrobeRouter);
   app.use('/api/preferences', verifyFirebaseToken, preferencesRouter);
   app.use('/api/outfit-history', verifyFirebaseToken, outfitHistoryRouter);
-  app.use('/api/shopper', verifyFirebaseToken, shopperCacheRouter);
+  app.use('/api/shopper-cache', verifyFirebaseToken, shopperCacheRouter);
 } else {
   console.warn('DATABASE_URL not set — DB-backed routes disabled. Add DATABASE_URL to .env to enable.');
 }
 
-// Shared server-side GenAI client — uses Application Default Credentials via Vertex AI
-const ai = new GoogleGenAI({
-  vertexai: true,
-  project: process.env.GOOGLE_CLOUD_PROJECT,
-  location: process.env.GOOGLE_CLOUD_LOCATION ?? 'europe-west2',
-});
+// Shared server-side GenAI client — uses Gemini API key
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // API endpoint for Virtual Outfit Try-On with Nano Banana
 app.post('/api/stylist/preview-outfit', async (req, res) => {
@@ -88,18 +84,18 @@ CRITICAL INSTRUCTIONS:
       },
     ];
 
-    // Call Nano Banana (gemini-3.1-flash-lite-image)
+    // Generate outfit preview using Gemini image generation (experimental)
     let response;
     try {
       response = await ai.models.generateContent({
         model: 'gemini-3.1-flash-lite-image',
         contents: { parts },
+        config: { responseModalities: ['IMAGE', 'TEXT'] },
       });
     } catch (modelErr: any) {
       console.warn('Primary image model attempt error:', modelErr);
-      // Fallback attempt with gemini-nano-banana-2.1 if requested/available
       response = await ai.models.generateContent({
-        model: 'gemini-nano-banana-2.1',
+        model: 'gemini-3.8-flash',
         contents: { parts },
       });
     }
@@ -253,14 +249,14 @@ Each item in the array must have the following schema:
         },
       });
     } catch (primaryErr: any) {
-      console.warn('Gemini 3.8 flash search grounding attempt error, retrying without tools:', primaryErr);
+      console.warn('Gemini search grounding attempt error, retrying without tools:', primaryErr);
       try {
         response = await ai.models.generateContent({
           model: 'gemini-3.8-flash',
           contents: promptText,
         });
       } catch (retryErr: any) {
-        console.warn('Gemini 3.8 flash fallback attempt failed:', retryErr);
+        console.warn('Gemini fallback attempt failed:', retryErr);
         response = null;
       }
     }

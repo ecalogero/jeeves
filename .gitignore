@@ -6,3 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+CLAUDE.md
+firebase-applet-config.json
+gemini-sa-key.json
+.aistudio/
+.gmp_cache/
