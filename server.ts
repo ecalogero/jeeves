@@ -32,14 +32,11 @@ if (process.env.DATABASE_URL) {
   console.warn('DATABASE_URL not set — DB-backed routes disabled. Add DATABASE_URL to .env to enable.');
 }
 
-// Shared server-side GenAI client with required aistudio-build telemetry header
+// Shared server-side GenAI client — uses Application Default Credentials via Vertex AI
 const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    },
-  },
+  vertexai: true,
+  project: process.env.GOOGLE_CLOUD_PROJECT,
+  location: process.env.GOOGLE_CLOUD_LOCATION ?? 'europe-west2',
 });
 
 // API endpoint for Virtual Outfit Try-On with Nano Banana
