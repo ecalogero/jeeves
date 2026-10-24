@@ -20,8 +20,7 @@ import { auth, initAuth, googleSignIn, logout } from './services/firebaseAuth';
 import { fetchGoogleCalendarEvents } from './services/calendarService';
 import * as api from './services/api';
 
-const GOOGLE_MAPS_API_KEY =
-  import.meta.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyAWSxKe3SWffmunY167rK3p7eyv-BKejE8';
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '';
 
 export default function App() {
   // Navigation
