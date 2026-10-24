@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  firebaseUid  String  @id @map("firebase_uid")
+  email        String
+  displayName  String? @map("display_name")
+  photoUrl     String? @map("photo_url")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  wardrobeItems WardrobeItem[]
+  preferences   UserPreferences?
+  outfitHistory OutfitHistory[]
+  shopperCache  ShopperCache[]
+
+  @@map("users")
+}
+
+model WardrobeItem {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  name        String
+  category    String
+  subcategory String
+  formality   String
+  warmth      Int
+  weatherTags String[] @map("weather_tags")
+  color       String
+  colorHex    String   @map("color_hex")
+  material    String
+  imageUrl    String?  @map("image_url")
+  iconName    String?  @map("icon_name")
+  isFavorite  Boolean  @default(false) @map("is_favorite")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [firebaseUid], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("wardrobe_items")
+}
+
+model UserPreferences {
+  id                     String   @id @default(uuid())
+  userId                 String   @unique @map("user_id")
+  warmthLean             String   @default("balanced") @map("warmth_lean")
+  formalityLean          Int      @default(0) @map("formality_lean")
+  commuteComfortPriority Boolean  @default(true) @map("commute_comfort_priority")
+  rainToleranceThreshold Int      @default(30) @map("rain_tolerance_threshold")
+  favoriteColors         String[] @map("favorite_colors")
+  dislikedMaterials      String[] @map("disliked_materials")
+  feedbackCount          Int      @default(0) @map("feedback_count")
+  weights                Json
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [firebaseUid], onDelete: Cascade)
+
+  @@map("user_preferences")
+}
+
+/// Records which outfit was worn to which meeting — enables improving suggestions over time
+model OutfitHistory {
+  id               String   @id @default(uuid())
+  userId           String   @map("user_id")
+  meetingTitle     String   @map("meeting_title")
+  meetingLocation  String   @map("meeting_location")
+  meetingFormality String   @map("meeting_formality")
+  wornAt           DateTime @map("worn_at")
+  itemIds          String[] @map("item_ids")
+  feedback         String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [firebaseUid], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("outfit_history")
+}
+
+/// Caches AI shopping recommendations keyed by wardrobe-gap fingerprint; 24h TTL
+model ShopperCache {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  gapsHash        String   @map("gaps_hash")
+  recommendations Json
+  createdAt       DateTime @default(now()) @map("created_at")
+  expiresAt       DateTime @map("expires_at")
+
+  user User @relation(fields: [userId], references: [firebaseUid], onDelete: Cascade)
+
+  @@index([userId, gapsHash])
+  @@map("shopper_cache")
+}

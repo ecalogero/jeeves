@@ -16,8 +16,9 @@ import { generateOutfitSuggestions, trainPreferences } from './utils/outfitEngin
 import { calculateDepartureTime, getMinutesUntilDeparture, isDepartureAlertActive } from './utils/commuteCalculator';
 import { calculateRouteFare, calculateAllModeOptions, annotateRouteStepFares } from './utils/commuteFareCalculator';
 import { fetchWeatherForLocation } from './utils/weatherUtils';
-import { initAuth, googleSignIn, logout } from './services/firebaseAuth';
+import { auth, initAuth, googleSignIn, logout } from './services/firebaseAuth';
 import { fetchGoogleCalendarEvents } from './services/calendarService';
+import * as api from './services/api';
 
 const GOOGLE_MAPS_API_KEY =
   import.meta.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyAWSxKe3SWffmunY167rK3p7eyv-BKejE8';
@@ -39,8 +40,11 @@ export default function App() {
     return SEED_WARDROBE;
   });
 
+  // Persist to localStorage only when unauthenticated (DB is used when signed in)
   useEffect(() => {
-    localStorage.setItem('sartorial_wardrobe', JSON.stringify(wardrobe));
+    if (!auth.currentUser) {
+      localStorage.setItem('sartorial_wardrobe', JSON.stringify(wardrobe));
+    }
   }, [wardrobe]);
 
   // Meetings state
@@ -83,7 +87,9 @@ export default function App() {
   });
 
   useEffect(() => {
-    localStorage.setItem('sartorial_preferences', JSON.stringify(preferences));
+    if (!auth.currentUser) {
+      localStorage.setItem('sartorial_preferences', JSON.stringify(preferences));
+    }
   }, [preferences]);
 
   // Commute state
@@ -132,11 +138,44 @@ export default function App() {
   const [isSendDirectionsModalOpen, setIsSendDirectionsModalOpen] = useState(false);
   const [isAlertDismissed, setIsAlertDismissed] = useState(false);
 
+  // Load wardrobe + preferences from DB, migrating from localStorage on first sign-in
+  const loadUserData = async () => {
+    try {
+      const [dbWardrobe, dbPrefs] = await Promise.all([
+        api.getWardrobe(),
+        api.getPreferences(),
+      ]);
+
+      if (dbWardrobe.length === 0) {
+        // Migrate any existing localStorage wardrobe into the DB
+        const saved = localStorage.getItem('sartorial_wardrobe');
+        if (saved) {
+          try {
+            const localItems = JSON.parse(saved) as WardrobeItem[];
+            if (localItems.length > 0) {
+              const migrated = await api.bulkCreateWardrobeItems(localItems);
+              setWardrobe(migrated);
+              localStorage.removeItem('sartorial_wardrobe');
+            }
+          } catch {}
+        }
+      } else {
+        setWardrobe(dbWardrobe);
+      }
+
+      setPreferences(dbPrefs);
+      localStorage.removeItem('sartorial_preferences');
+    } catch (err) {
+      console.warn('Could not load user data from DB (DATABASE_URL may not be set):', err);
+    }
+  };
+
   // Initialize Firebase Auth listener
   useEffect(() => {
     initAuth(
-      (currentUser, token) => {
+      (currentUser) => {
         setUser(currentUser);
+        loadUserData();
         // Sync Calendar automatically once authenticated
         fetchGoogleCalendarEvents()
           .then(events => {
@@ -163,6 +202,7 @@ export default function App() {
       const res = await googleSignIn();
       if (res) {
         setUser(res.user);
+        await loadUserData();
         const events = await fetchGoogleCalendarEvents();
         if (events && events.length > 0) {
           setMeetings(events);
@@ -181,6 +221,9 @@ export default function App() {
     await logout();
     setUser(null);
     setIsCalendarSynced(false);
+    // Restore from localStorage on sign-out
+    const saved = localStorage.getItem('sartorial_wardrobe');
+    setWardrobe(saved ? JSON.parse(saved) : SEED_WARDROBE);
   };
 
   const handleSyncCalendar = async () => {
@@ -252,25 +295,60 @@ export default function App() {
     selectedMeeting
   );
 
-  // Training handler
-  const handleTrainPreference = (feedback: {
+  // Training handler — saves updated preferences to DB when authenticated
+  const handleTrainPreference = async (feedback: {
     type: 'thumbs_up' | 'too_formal' | 'too_casual' | 'too_cold' | 'too_warm' | 'love_comfort' | 'prefer_formal';
     itemColor?: string;
   }) => {
     const updated = trainPreferences(preferences, feedback);
     setPreferences(updated);
+    if (user) {
+      try { await api.upsertPreferences(updated); } catch {}
+    }
   };
 
-  // Wardrobe CRUD
-  const handleAddItem = (item: WardrobeItem) => {
+  const handleUpdatePreferences = async (updated: UserPreferences) => {
+    setPreferences(updated);
+    if (user) {
+      try { await api.upsertPreferences(updated); } catch {}
+    }
+  };
+
+  // Wardrobe CRUD — calls API when authenticated, otherwise updates local state only
+  const handleAddItem = async (item: WardrobeItem) => {
+    if (user) {
+      try {
+        const created = await api.createWardrobeItem(item);
+        setWardrobe(prev => [created, ...prev]);
+        return;
+      } catch (err) {
+        console.error('Failed to save wardrobe item to DB:', err);
+      }
+    }
     setWardrobe(prev => [item, ...prev]);
   };
 
-  const handleUpdateItem = (item: WardrobeItem) => {
+  const handleUpdateItem = async (item: WardrobeItem) => {
+    if (user) {
+      try {
+        const updated = await api.updateWardrobeItem(item);
+        setWardrobe(prev => prev.map(i => (i.id === item.id ? updated : i)));
+        return;
+      } catch (err) {
+        console.error('Failed to update wardrobe item in DB:', err);
+      }
+    }
     setWardrobe(prev => prev.map(i => (i.id === item.id ? item : i)));
   };
 
-  const handleDeleteItem = (id: string) => {
+  const handleDeleteItem = async (id: string) => {
+    if (user) {
+      try {
+        await api.deleteWardrobeItem(id);
+      } catch (err) {
+        console.error('Failed to delete wardrobe item from DB:', err);
+      }
+    }
     setWardrobe(prev => prev.filter(i => i.id !== id));
   };
 
@@ -351,7 +429,7 @@ export default function App() {
         {activeTab === 'trainer' && (
           <PreferencesTrainer
             preferences={preferences}
-            onUpdatePreferences={setPreferences}
+            onUpdatePreferences={handleUpdatePreferences}
             wardrobe={wardrobe}
             weather={fallbackWeather}
           />

@@ -64,6 +64,13 @@ export const getAccessToken = async (): Promise<string | null> => {
   return cachedAccessToken;
 };
 
+// Returns a Firebase ID token for authenticating against the Jeeves backend API
+export const getIdToken = async (): Promise<string | null> => {
+  const user = auth.currentUser;
+  if (!user) return null;
+  return user.getIdToken();
+};
+
 export const logout = async () => {
   await signOut(auth);
   cachedAccessToken = null;

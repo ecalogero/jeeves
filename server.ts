@@ -4,6 +4,12 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
+import { PrismaClient } from '@prisma/client';
+import { verifyFirebaseToken, AuthRequest } from './src/middleware/auth.js';
+import wardrobeRouter from './src/routes/wardrobe.js';
+import preferencesRouter from './src/routes/preferences.js';
+import outfitHistoryRouter from './src/routes/outfitHistory.js';
+import shopperCacheRouter, { computeGapsHash } from './src/routes/shopperCache.js';
 
 dotenv.config();
 
@@ -15,6 +21,16 @@ const port = parseInt(process.env.PORT || '3000', 10);
 
 // Allow large payloads for user photos
 app.use(express.json({ limit: '35mb' }));
+
+// ── Database-backed API routes ─────────────────────────────────────────────
+if (process.env.DATABASE_URL) {
+  app.use('/api/wardrobe', verifyFirebaseToken, wardrobeRouter);
+  app.use('/api/preferences', verifyFirebaseToken, preferencesRouter);
+  app.use('/api/outfit-history', verifyFirebaseToken, outfitHistoryRouter);
+  app.use('/api/shopper', verifyFirebaseToken, shopperCacheRouter);
+} else {
+  console.warn('DATABASE_URL not set — DB-backed routes disabled. Add DATABASE_URL to .env to enable.');
+}
 
 // Shared server-side GenAI client with required aistudio-build telemetry header
 const ai = new GoogleGenAI({
@@ -125,8 +141,22 @@ CRITICAL INSTRUCTIONS:
   }
 });
 
+// Optional auth middleware — attaches uid if a valid token is present, otherwise continues
+async function optionalAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ') && process.env.DATABASE_URL) {
+    try {
+      await verifyFirebaseToken(req, res, next);
+    } catch {
+      next();
+    }
+  } else {
+    next();
+  }
+}
+
 // API endpoint for Personal Shopper Agent with Google Search Grounding
-app.post('/api/shopper/recommendations', async (req, res) => {
+app.post('/api/shopper/recommendations', optionalAuth, async (req, res) => {
   try {
     const {
       meetings = [],
@@ -135,6 +165,25 @@ app.post('/api/shopper/recommendations', async (req, res) => {
       gaps = [],
       userQuery = '',
     } = req.body;
+
+    // Check shopper cache for authenticated users
+    const uid = (req as AuthRequest).uid;
+    if (uid && process.env.DATABASE_URL && gaps.length > 0 && !userQuery) {
+      const prisma = new PrismaClient();
+      const gapsHash = computeGapsHash(gaps);
+      const cached = await prisma.shopperCache.findFirst({
+        where: { userId: uid, gapsHash, expiresAt: { gt: new Date() } },
+      });
+      if (cached) {
+        return res.json({
+          success: true,
+          recommendations: cached.recommendations,
+          webSources: [],
+          totalGapsAddressed: gaps.length,
+          fromCache: true,
+        });
+      }
+    }
 
     const meetingsSummary = meetings
       .slice(0, 7)
@@ -352,6 +401,24 @@ Each item in the array must have the following schema:
           meetingFit: 'Smart Casual strategy sessions',
         },
       ];
+    }
+
+    // Save to cache for authenticated users
+    if (uid && process.env.DATABASE_URL && gaps.length > 0 && !userQuery && recommendations.length > 0) {
+      try {
+        const prisma = new PrismaClient();
+        const gapsHash = computeGapsHash(gaps);
+        await prisma.shopperCache.create({
+          data: {
+            userId: uid,
+            gapsHash,
+            recommendations,
+            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          },
+        });
+      } catch (cacheErr) {
+        console.warn('Failed to save shopper cache:', cacheErr);
+      }
     }
 
     return res.json({
