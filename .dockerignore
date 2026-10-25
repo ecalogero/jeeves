@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env*
+.git/
+.gmp_cache/
+.aistudio/
+gemini-sa-key.json
+CLAUDE.md
