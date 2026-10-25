@@ -32,6 +32,75 @@ if (process.env.DATABASE_URL) {
   console.warn('DATABASE_URL not set — DB-backed routes disabled. Add DATABASE_URL to .env to enable.');
 }
 
+// ── iCal proxy ────────────────────────────────────────────────────────────────
+// Fetches and parses a remote .ics file server-side to avoid CORS issues
+app.get('/api/ical-proxy', async (req, res) => {
+  const url = req.query.url as string;
+  if (!url) return res.status(400).json({ error: 'url query param is required' });
+
+  try {
+    const icsRes = await fetch(url, { headers: { 'User-Agent': 'Jeeves/1.0' } });
+    if (!icsRes.ok) return res.status(502).json({ error: `Upstream fetch failed: ${icsRes.status}` });
+    const text = await icsRes.text();
+    const events = parseIcs(text);
+    return res.json(events);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+function parseIcs(icsText: string): object[] {
+  const events: object[] = [];
+  const lines = icsText.replace(/\r\n[ \t]/g, '').split(/\r?\n/);
+
+  let current: Record<string, string> | null = null;
+  for (const line of lines) {
+    if (line === 'BEGIN:VEVENT') { current = {}; continue; }
+    if (line === 'END:VEVENT' && current) {
+      const start = parseIcsDate(current['DTSTART'] ?? current['DTSTART;TZID'] ?? '');
+      const end = parseIcsDate(current['DTEND'] ?? current['DTEND;TZID'] ?? '');
+      if (start) {
+        events.push({
+          id: current['UID'] ?? `ics-${Date.now()}-${Math.random()}`,
+          title: unescapeIcs(current['SUMMARY'] ?? 'Event'),
+          startTime: start,
+          endTime: end ?? new Date(new Date(start).getTime() + 3600000).toISOString(),
+          location: unescapeIcs(current['LOCATION'] ?? ''),
+          description: unescapeIcs(current['DESCRIPTION'] ?? ''),
+        });
+      }
+      current = null;
+      continue;
+    }
+    if (current && line.includes(':')) {
+      const colon = line.indexOf(':');
+      const key = line.slice(0, colon).split(';')[0];
+      const fullKey = line.slice(0, colon);
+      current[key] = line.slice(colon + 1);
+      if (fullKey !== key) current[fullKey] = line.slice(colon + 1);
+    }
+  }
+  return events;
+}
+
+function parseIcsDate(val: string): string | null {
+  if (!val) return null;
+  // DATE-TIME: 20241025T090000Z or 20241025T090000
+  const m = val.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
+  if (m) {
+    const [, y, mo, d, h, mi, s, z] = m;
+    return `${y}-${mo}-${d}T${h}:${mi}:${s}${z || ''}`;
+  }
+  // DATE: 20241025
+  const dm = val.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (dm) return `${dm[1]}-${dm[2]}-${dm[3]}T00:00:00`;
+  return null;
+}
+
+function unescapeIcs(s: string): string {
+  return s.replace(/\\n/g, '\n').replace(/\\,/g, ',').replace(/\\;/g, ';').replace(/\\\\/g, '\\');
+}
+
 // Shared server-side GenAI client — uses Gemini API key
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 

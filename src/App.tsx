@@ -8,6 +8,7 @@ import { CommuteMapView } from './components/CommuteMapView';
 import { PreferencesTrainer } from './components/PreferencesTrainer';
 import { SendDirectionsModal } from './components/SendDirectionsModal';
 import { PersonalShopperView } from './components/PersonalShopperView';
+import { CalendarSyncModal } from './components/CalendarSyncModal';
 
 import { WardrobeItem, Meeting, WeatherCondition, UserPreferences, CommutePlan } from './types';
 import { SEED_WARDROBE } from './data/seedWardrobe';
@@ -18,6 +19,9 @@ import { calculateRouteFare, calculateAllModeOptions, annotateRouteStepFares } f
 import { fetchWeatherForLocation } from './utils/weatherUtils';
 import { auth, initAuth, googleSignIn, logout } from './services/firebaseAuth';
 import { fetchGoogleCalendarEvents } from './services/calendarService';
+import { microsoftSignIn, getMicrosoftAccount, microsoftSignOut } from './services/microsoftAuth';
+import { fetchMicrosoftCalendarEvents } from './services/microsoftCalendarService';
+import { fetchIcsCalendarEvents } from './services/icsCalendarService';
 import * as api from './services/api';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '';
@@ -136,6 +140,8 @@ export default function App() {
 
   const [isSendDirectionsModalOpen, setIsSendDirectionsModalOpen] = useState(false);
   const [isAlertDismissed, setIsAlertDismissed] = useState(false);
+  const [isCalendarSyncModalOpen, setIsCalendarSyncModalOpen] = useState(false);
+  const [calendarSource, setCalendarSource] = useState<'google' | 'microsoft' | 'ics' | null>(null);
 
   // Load wardrobe + preferences from DB, migrating from localStorage on first sign-in
   const loadUserData = async () => {
@@ -225,22 +231,37 @@ export default function App() {
     setWardrobe(saved ? JSON.parse(saved) : SEED_WARDROBE);
   };
 
-  const handleSyncCalendar = async () => {
-    if (!user) {
-      handleLogin();
-      return;
-    }
-    try {
-      const events = await fetchGoogleCalendarEvents();
-      if (events && events.length > 0) {
-        setMeetings(events);
-        setSelectedMeeting(events[0]);
-        setIsCalendarSynced(true);
-      }
-    } catch (err) {
-      console.error('Calendar sync error:', err);
+  const applyCalendarEvents = (events: Meeting[]) => {
+    if (events.length > 0) {
+      setMeetings(events);
+      setSelectedMeeting(events[0]);
+      setIsCalendarSynced(true);
     }
   };
+
+  const handleSyncGoogleCalendar = async () => {
+    if (!user) await handleLogin();
+    const events = await fetchGoogleCalendarEvents();
+    applyCalendarEvents(events);
+    setCalendarSource('google');
+  };
+
+  const handleSyncMicrosoftCalendar = async () => {
+    const existing = await getMicrosoftAccount();
+    if (!existing) await microsoftSignIn();
+    const events = await fetchMicrosoftCalendarEvents();
+    applyCalendarEvents(events);
+    setCalendarSource('microsoft');
+  };
+
+  const handleSyncIcsCalendar = async (url: string) => {
+    const normalised = url.replace(/^webcal:\/\//i, 'https://');
+    const events = await fetchIcsCalendarEvents(normalised);
+    applyCalendarEvents(events as Meeting[]);
+    setCalendarSource('ics');
+  };
+
+  const handleSyncCalendar = () => setIsCalendarSyncModalOpen(true);
 
   // Fetch weather whenever selected meeting changes
   useEffect(() => {
@@ -434,6 +455,16 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* Calendar Sync Modal */}
+      <CalendarSyncModal
+        isOpen={isCalendarSyncModalOpen}
+        onClose={() => setIsCalendarSyncModalOpen(false)}
+        onSyncGoogle={handleSyncGoogleCalendar}
+        onSyncMicrosoft={handleSyncMicrosoftCalendar}
+        onSyncIcs={handleSyncIcsCalendar}
+        activeSource={calendarSource}
+      />
 
       {/* Send Directions Modal */}
       <SendDirectionsModal
