@@ -1,17 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const firebaseConfig = JSON.parse(
-  readFileSync(join(__dirname, '../../firebase-applet-config.json'), 'utf-8')
-);
-
 if (!getApps().length) {
-  initializeApp({ projectId: firebaseConfig.projectId });
+  initializeApp({ projectId: process.env.FIREBASE_PROJECT_ID });
 }
 
 export interface AuthRequest extends Request {

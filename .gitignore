@@ -8,5 +8,6 @@ coverage/
 !.env.example
 CLAUDE.md
 gemini-sa-key.json
+firebase-applet-config.json
 .aistudio/
 .gmp_cache/
