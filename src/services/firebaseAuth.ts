@@ -7,13 +7,16 @@ import {
   User,
   signOut,
 } from 'firebase/auth';
+// Firebase Web API keys are safe to embed in client code — they identify the project,
+// not authenticate access. Security is enforced via Firebase Security Rules.
+// See: https://firebase.google.com/docs/projects/api-keys
 const firebaseConfig = {
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  projectId: 'casebook-511221',
+  appId: '1:349349424398:web:7b60fb36040206ce773b5f',
+  apiKey: 'AIzaSyBt3NtZ_71EiQfh-vn1bA5W91y6rgmr-MU',
+  authDomain: 'casebook-511221.firebaseapp.com',
+  storageBucket: 'casebook-511221.firebasestorage.app',
+  messagingSenderId: '349349424398',
 };
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
